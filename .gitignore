@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# artefatos de treino sao gerados por `python -m src.train`
+models/*.joblib
+
+.idea/
+.vscode/
