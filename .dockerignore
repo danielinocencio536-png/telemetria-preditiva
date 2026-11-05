@@ -1,0 +1,9 @@
+.git
+.github
+.claude
+.venv
+.env
+__pycache__
+.pytest_cache
+tests
+models/*.joblib

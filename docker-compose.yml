@@ -1,0 +1,14 @@
+services:
+  api:
+    build: .
+    image: telemetria-preditiva:latest
+    ports:
+      - "8000:8000"
+    env_file:
+      # sem .env a API sobe so com o diagnostico por regras
+      - path: .env
+        required: false
+    volumes:
+      # o modelo e gerado fora da imagem: docker compose run --rm api python -m src.train
+      - ./models:/app/models
+    restart: unless-stopped
