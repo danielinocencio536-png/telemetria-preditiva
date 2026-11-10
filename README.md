@@ -3,6 +3,7 @@
 Diagnóstico automatizado de falhas em turbinas e caldeiras: um modelo XGBoost estima a probabilidade de falha a partir da telemetria e, quando o risco passa de 80%, o Claude gera um diagnóstico técnico estruturado.
 
 ![CI](https://github.com/danielinocencio536-png/telemetria-preditiva/actions/workflows/ci.yml/badge.svg)
+![Cobertura](https://img.shields.io/badge/cobertura-96%25-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688)
 ![XGBoost](https://img.shields.io/badge/XGBoost-2.x-orange)
@@ -59,11 +60,29 @@ No Linux, o container roda como usuário não-root (uid 10001) e pode não ter p
 python -m pytest
 ```
 
-A suíte treina um modelo pequeno em diretório temporário e substitui o cliente Anthropic por um mock: nenhuma chamada de rede, nenhuma chave necessária.
+A suíte treina um modelo pequeno em diretório temporário e substitui o cliente Anthropic por um mock: nenhuma chamada de rede, nenhuma chave necessária. Além da API, ela verifica o gerador de dados (faixas físicas, taxa de falha, determinismo pela seed) e a qualidade do modelo: um AUC acima de 0,99 também reprova, porque indicaria dados triviais.
+
+A cobertura é medida em toda execução (`pytest-cov`) e fica em ~96%. Abaixo de 90%, a suíte falha, inclusive no CI. Avisos de depreciação também quebram os testes, para que dependências desatualizadas não passem despercebidas.
 
 ## Decisões de Arquitetura & Trade-offs
 
-**Dados sintéticos.** O treino gera 2.500 amostras com ruído de sensor, sobreposição entre classes e 1,5% de leituras ausentes. Serve para validar o pipeline ponta a ponta; as métricas (F1 ≈ 0,98) refletem a facilidade do gerador, não o desempenho esperado em planta. Em produção o primeiro passo é trocar `gerar_telemetria_sintetica` por histórico real rotulado com ordens de manutenção.
+**Dados sintéticos com desgaste contínuo.** O treino gera 2.500 amostras a partir de um desgaste latente em [0, 1]: os sensores derivam junto com ele (mais temperatura, vibração e oscilação de rotação; pressão subindo por obstrução ou caindo por vazamento), e a falha é sorteada por uma curva logística do desgaste. Dois equipamentos com o mesmo desgaste podem ter destinos diferentes, como em planta. Há ainda ruído de medição e 1,5% de leituras ausentes. A primeira versão separava as classes por construção e chegava a AUC ≈ 1,0 com 99% das previsões abaixo de 5% ou acima de 95%. Esse modelo parece ótimo, mas não informa nada sobre o risco intermediário. Em produção, o primeiro passo é trocar `gerar_telemetria_sintetica` por histórico real rotulado com ordens de manutenção.
+
+## Desempenho do modelo
+
+Conjunto de teste estratificado (20% de 2.500 amostras, ~17% de falhas), `python -m src.train`:
+
+| Métrica | Valor | Leitura |
+|---|---|---|
+| ROC-AUC | 0,936 | Ordena bem equipamentos por risco |
+| PR-AUC | 0,795 | Bom para a classe rara (o acaso daria ~0,17) |
+| Brier | 0,069 | Probabilidades calibradas: quando o modelo diz ~30%, falham ~30% |
+| Limiar 0,50 (`elevado`) | precisão 0,76 · recall 0,65 | Triagem: pega 2 de cada 3 falhas |
+| Limiar 0,80 (`critico`, aciona o LLM) | precisão 0,88 · recall 0,42 | Poucos alarmes falsos; casos menos claros ficam em `elevado` |
+
+O limiar crítico privilegia precisão de propósito: cada alerta custa uma chamada ao LLM e uma ida da equipe ao equipamento. O nível `elevado` existe para não perder o restante das falhas. Baixar `LIMIAR_ALERTA` troca alarmes falsos por recall, sem retreinar.
+
+O treino não usa `scale_pos_weight`: o peso de classe distorceria as probabilidades, e a API decide pelo valor da probabilidade, não só pela classe prevista.
 
 **XGBoost em vez de rede neural.** Dados tabulares com cinco variáveis: árvores treinam em segundos, lidam com `NaN` nativamente (sensor ausente não exige imputação) e dispensam GPU. O custo é não capturar dependência temporal; janelas deslizantes (média/derivada de vibração) seriam a evolução natural.
 

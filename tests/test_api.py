@@ -209,6 +209,26 @@ def test_limiar_invalido_impede_subida_da_api(monkeypatch, valor):
             pass
 
 
+@pytest.mark.parametrize(
+    ("probabilidade", "nivel"),
+    [(0.10, "normal"), (0.49, "normal"), (0.50, "elevado"), (0.79, "elevado"), (0.80, "critico"), (1.0, "critico")],
+)
+def test_faixas_de_risco_respeitam_os_limiares(monkeypatch, probabilidade, nivel):
+    monkeypatch.setenv("LIMIAR_ALERTA", "0.80")
+    assert ml_service.classificar_risco(probabilidade) == nivel
+
+
+def test_risco_intermediario_nao_aciona_claude(client, chamada_claude, monkeypatch):
+    monkeypatch.setattr("src.main.prever_risco", lambda _: 0.65)
+
+    corpo = client.post(ROTA, json=PAYLOAD_SAUDAVEL).json()
+
+    assert corpo["nivel_risco"] == "elevado"
+    assert corpo["alerta"] is False
+    assert corpo["diagnostico"] is None
+    chamada_claude.assert_not_awaited()
+
+
 def test_servico_sem_api_key_usa_regras():
     servico = LLMService(api_key="")
     telemetria = TelemetriaRequest(**PAYLOAD_CRITICO)
